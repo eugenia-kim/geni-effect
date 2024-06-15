@@ -2,6 +2,11 @@ import { Effect, Console } from "effect";
 import * as S from "@effect/schema/Schema";
 import { JSONSchema } from "@effect/schema";
 
+// Plan
+// [done] 1. First function with proper typing
+// 2. Call open AI to generate a function
+// 3. Simple cache of function on disk
+
 const Person = S.Struct({
   name: S.String,
   age: S.Number,
