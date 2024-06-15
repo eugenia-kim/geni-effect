@@ -1,1 +1,3 @@
-console.log("Hello via Bun!");
+import { Effect, Console } from "effect";
+const program = Console.log("Hello, World!");
+Effect.runSync(program);
