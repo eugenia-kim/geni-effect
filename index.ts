@@ -24,7 +24,7 @@ function geni<Input, Output>(
   input: S.Schema<Input>,
   output: S.Schema<Output>
 ): (input: Input) => Output {
-  return (input: Input) => "world" as Output;
+  return (input: Input) => "eugenia" as Output;
 }
 
 const hello = geni("hello", Person, S.String);
