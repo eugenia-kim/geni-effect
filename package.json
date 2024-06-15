@@ -9,6 +9,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@effect/schema": "^0.67.23",
     "effect": "^3.3.2"
   }
 }
