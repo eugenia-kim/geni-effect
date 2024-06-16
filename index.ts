@@ -7,6 +7,8 @@ import OpenAI from "openai";
 // [done] 1. First function with proper typing
 // [done] 2. Call open AI to generate a function
 // 3. Simple cache of function on disk
+// 4. Generate Effect instead of the function with Success
+// 5. Generate Effect with Success, Error, and Requirements
 
 const openai = new OpenAI();
 
