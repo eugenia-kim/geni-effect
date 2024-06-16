@@ -31,9 +31,13 @@ async function geni<Input, Output>(
   input: S.Schema<Input>,
   output: S.Schema<Output>
 ): Promise<(input: Input) => Output> {
-  const result = await request(`Don't return other than the TypeScript function code.
+  const result = await request(`
+  Generate a TypeScript function based on the given description to be passed into eval function.
+  
    Make sure the function is called 'main'. 
-   Generate a single function which does the following: ${description}`);
+   Generate a single function which does the following: ${description}. 
+   Make sure the response is in a text format. Not a code block.
+`);
   console.log(result);
   return (input: Input) => 'eugenia' as Output;
 }
