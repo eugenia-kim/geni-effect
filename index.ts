@@ -16,7 +16,7 @@ async function request(prompt: string) {
     model: "gpt-4o",
   });
 
-  return completion.choices[0].message.content;
+  return completion.choices[0].message.content || "";
 }
 
 const Person = S.Struct({
@@ -32,21 +32,22 @@ async function geni<Input, Output>(
   output: S.Schema<Output>
 ): Promise<(input: Input) => Output> {
   const result = await request(`
-  Generate a TypeScript function based on the given description to be passed into eval function.
+  Generate a javascript function based on the given description to be passed into eval function.
   
    Make sure the function is called 'main'. 
    Generate a single function which does the following: ${description}. 
    Make sure the response is in a text format. Not a code block.
 `);
-  console.log(result);
-  return (input: Input) => 'eugenia' as Output;
+  const toEval = `${result} \n main('hello', 13);`
+  console.log(toEval);
+  return () => eval(toEval);
 }
 
 const hello = await geni("Return a happy birthday message to the person mentioning the age.", Person, S.String);
 
-const result = hello({ name: "hello", age: 13 });
+// const result = hello({ name: "hello", age: 13 });
 
-console.log(result);
+console.log(hello({ name: "hello", age: 13 }));
 
 
 
