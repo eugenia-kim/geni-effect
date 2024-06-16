@@ -5,7 +5,7 @@ import OpenAI from "openai";
 
 // Plan
 // [done] 1. First function with proper typing
-// 2. Call open AI to generate a function
+// [done] 2. Call open AI to generate a function
 // 3. Simple cache of function on disk
 
 const openai = new OpenAI();
@@ -19,12 +19,12 @@ async function request(prompt: string) {
   return completion.choices[0].message.content || "";
 }
 
-const Person = S.Struct({
-  name: S.String,
-  age: S.Number,
+const TwoArrays = S.Struct({
+  fst: S.Array(S.Number),
+  snd: S.Array(S.Number),
 });
 
-type PersonType = S.Schema.Type<typeof Person>;
+type TwoArraysType = S.Schema.Type<typeof TwoArrays>;
 
 async function geni<Input, Output>(
   description: string,
@@ -59,16 +59,7 @@ output: ${output}
   };
 }
 
-const hello = await geni("Flatten an array", S.Array(S.Array(S.Number)), S.Array(S.Number));
+const flatten = await geni("Flatten an array", TwoArrays, S.Array(S.Number));
 
-// const result = hello({ name: "hello", age: 13 });
+console.log(flatten({ fst: [1, 2, 3], snd: [4, 5, 6] }));
 
-console.log(hello([[1, 2, 3], [4, 5, 6]]));
-
-
-
-// const r = request(
-//   `generate a function with the following schema: { description: "returns hello, name of the person", input: ${ Person }, output: ${ S.String } } `,
-// );
-
-// console.log(r);
