@@ -11,6 +11,7 @@
   "dependencies": {
     "@effect/schema": "^0.67.23",
     "effect": "^3.3.2",
+    "js-sha1": "^0.7.0",
     "openai": "^4.51.0"
   }
 }
