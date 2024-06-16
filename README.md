@@ -1,5 +1,17 @@
 # geni-effect
 
+Plan: 
+
+- [x] First function with proper typing
+- [x] Call open AI to generate a function
+- [x] Simple cache of function on disk
+- [ ] Multiple Inputs
+- [ ] Validate Ouput type
+- [ ] Error handling for openai generate function
+- [ ] Generate Effect instead of the function with Success
+- [ ] Generate Effect with Success, Error, and Requirements
+- [ ] Replace bun file with storage abstraction using Effect platform layer
+
 To install dependencies:
 
 ```bash
@@ -11,5 +23,3 @@ To run:
 ```bash
 bun run index.ts
 ```
-
-This project was created using `bun init` in bun v1.1.13. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.

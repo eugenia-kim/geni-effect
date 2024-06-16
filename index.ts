@@ -4,15 +4,6 @@ import { JSONSchema } from "@effect/schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 
-// Plan
-// [done] 1. First function with proper typing
-// [done] 2. Call open AI to generate a function
-// [done] 3. Simple cache of function on disk
-// 4. Multiple Inputs
-// 5. Generate Effect instead of the function with Success
-// 6. Generate Effect with Success, Error, and Requirements
-// 7. Replace bun file with storage abstraction using Effect platform layer
-
 const openai = new OpenAI();
 
 async function request(prompt: string) {
