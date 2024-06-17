@@ -27,7 +27,9 @@ const TwoArrays = S.Struct({
 
 type TwoArraysType = S.Schema.Type<typeof TwoArrays>; ``
 
-async function generateFunction<Input, Output>(description: string, input: S.Schema<Input>, output: S.Schema<Output>) {
+type InputSchema<Input> = { [I in keyof Input]: S.Schema<Input[I]> };
+
+async function generateFunction<Input, Output>(description: string, input: InputSchema<Input>, output: S.Schema<Output>) {
   return await request(`
   Generate a javascript function based on the given description, input schema and output schema to be passed into eval function.
 Example:
@@ -50,33 +52,38 @@ output: ${output}
 `);
 }
 
-async function geni<Input, Output>(
+
+async function geni<Input extends unknown[], Output>(
   description: string,
-  input: S.Schema<Input>,
+  inputs: InputSchema<Input>,
   output: S.Schema<Output>
-): Promise<(input: Input) => Output> {
-  const hash = sha1(`${description}:${input}:${output}`);
+): Promise<(...input: Input) => Output> {
+  const hash = sha1(`${description}:${inputs}:${output}`);
   const file = Bun.file(`.geni/${hash}.js`);
   const result = await (async () => {
     if (await file.exists()) {
       return file.text();
     }
-    const r = await generateFunction(description, input, output);
+    const r = await generateFunction(description, inputs, output);
     Bun.write(file, r);
     return r;
   })();
 
-  return (args: Input) => {
-    const toEval = `${result} \n main(${JSON.stringify(args)}); `
+  return (...args: Input) => {
+    const toEval = `${result} \n main(${args.map(arg => JSON.stringify(arg)).join(", ")}); `
     console.log(toEval);
     return eval(toEval);
   };
 }
 
-const flatten = await geni("Flatten an array", TwoArrays, S.Array(S.Number));
+const flatten = await geni("Flatten an array", [TwoArrays], S.Array(S.Number));
 
 console.log(flatten({ fst: [1, 2, 3], snd: [4, 5, 6] }));
 
-const dotproduct = await geni("Dot product two arrays", TwoArrays, S.Array(S.Number));
+const dotproduct = await geni("Dot product two arrays", [TwoArrays], S.Array(S.Number));
 
 console.log(dotproduct({ fst: [1, 2, 3], snd: [4, 5, 6] }));
+
+const dotproductpair = await geni("Dot product two array pairs", [TwoArrays, TwoArrays], TwoArrays);
+
+console.log(dotproductpair({ fst: [1, 2, 3], snd: [4, 5, 6] }, { fst: [7, 2, 3], snd: [10, 5, 6] }));

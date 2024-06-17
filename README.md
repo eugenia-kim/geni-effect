@@ -5,7 +5,7 @@ Plan:
 - [x] First function with proper typing
 - [x] Call open AI to generate a function
 - [x] Simple cache of function on disk
-- [ ] Multiple Inputs
+- [x] Multiple Inputs
 - [ ] Validate Ouput type
 - [ ] Error handling for openai generate function
 - [ ] Generate Effect instead of the function with Success
