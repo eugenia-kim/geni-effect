@@ -4,6 +4,7 @@ import { JSONSchema } from "@effect/schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 import * as ts from "typescript";
+import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 
 const openai = new OpenAI();
 
@@ -22,28 +23,16 @@ async function generateFunction<Input, Output>(
   description: string,
   input: InputSchema<Input>,
   output: Schema<Output>,
+  previousAttempts: Array<{
+    response: string,
+    error: string,
+  }> = [],
 ) {
   console.log("openAI request");
-  return request(`
-  Generate a fully typed typescript function based on the given description, input schema and output schema to be passed into eval function.
-Example:
-
-description: 'Return a happy birthday message to the person mentioning the age.' 
-input: { readonly name: string; readonly age: number }
-output: string
-
-function main(person: { readonly name: string; readonly age: number }): string {
-  return \`Happy birthday \${person.name}. You're now \${person.age} years old\`
-}
-
-  
-Make sure the function is called 'main'. 
-Make sure the response is in a text format.Not a code block.
-Generate a single function with the following description, input and output schema:
-description: ${description}
-input: ${input}
-output: ${output}
-`);
+  if (previousAttempts.length) {
+    return request(retryGenerateFunctionPrompt(description, input, output, previousAttempts));
+  }
+  return request(generateFunctionPrompt(description, input, output));
 }
 
 function typecheck<Input extends unknown[], Output>(fileName: string, inputs: InputSchema<Input>, output: Schema<Output>) {
@@ -69,16 +58,32 @@ export async function geni<Input extends unknown[], Output>(
   output: Schema<Output>,
 ): Promise<(...input: Input) => Output> {
   const hash = sha1(`${description}:${inputs}:${output}`);
-  const file = Bun.file(`.geni/${hash}.ts`);
+  const fileName = `.geni/${hash}.ts`;
+  const file = Bun.file(fileName);
+  const wrapperCode = `const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;`;
+
+  const generateAndWrite = async (previousAttempts: Array<{ response: string, error: string }>) => {
+    const r = `${await generateFunction(description, inputs, output, previousAttempts)}\n${wrapperCode}`;
+    Bun.write(file, r);
+    typecheck(fileName, inputs, output);
+    return r;
+  };
   const result = await (async () => {
     if (await file.exists()) {
-      return file.text();
+      return await file.text();
     }
-    const r =
-      `${await generateFunction(description, inputs, output)}
-const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;`;
-    Bun.write(file, r);
-    typecheck(`.geni/${hash}.ts`, inputs, output);
+    let retries = 3;
+    let previousAttempts: Array<{ response: string, error: string }> = [];
+    let r = '';
+    while (retries > 0) {
+      try {
+        r = await generateAndWrite(previousAttempts);
+        break;
+      } catch (e: unknown) {
+        previousAttempts.push({ response: r, error: (e as Error).message });
+      }
+      retries--;
+    }
     return r;
   })();
 

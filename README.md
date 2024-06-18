@@ -12,7 +12,7 @@ Plan:
 - [ ] Generate Effect with Success, Error, and Requirements
 - [ ] Replace bun file with storage abstraction using Effect platform layer
 - [ ] Fuzzy testing
-- [ ] Similar function can be identified 
+- [ ] Similar function can be identified. Function lookup should check the db first.
 
 To install dependencies:
 
