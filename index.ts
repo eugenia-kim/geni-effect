@@ -16,7 +16,6 @@ async function request(prompt: string) {
   return completion.choices[0].message.content || "";
 }
 
-
 type InputSchema<Input> = { [I in keyof Input]: Schema<Input[I]> };
 
 async function generateFunction<Input, Output>(
@@ -75,10 +74,9 @@ export async function geni<Input extends unknown[], Output>(
     if (await file.exists()) {
       return file.text();
     }
-    const r = `
-${await generateFunction(description, inputs, output)}
-const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;
-  `;
+    const r =
+      `${await generateFunction(description, inputs, output)}
+const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;`;
     Bun.write(file, r);
     typecheck(`.geni/${hash}.ts`, inputs, output);
     return r;
