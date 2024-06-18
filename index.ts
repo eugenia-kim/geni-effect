@@ -14,11 +14,6 @@ async function request(prompt: string) {
   });
 
   return completion.choices[0].message.content || "";
-  // return `
-  // function main(arrays) {
-  //   return [...arrays.fst, ...arrays.snd];
-  // }
-  // `;
 }
 
 
@@ -52,18 +47,21 @@ output: ${output}
 `);
 }
 
-function typecheck<Input extends unknown[], Output>(fileName: string, input: InputSchema<Input>, output: Schema<Output>) {
+function typecheck<Input extends unknown[], Output>(fileName: string, inputs: InputSchema<Input>, output: Schema<Output>) {
   const program = ts.createProgram([fileName], {});
-  const typeChecker = program.getTypeChecker();
-  const ast = program.getSourceFile(fileName);
-  if (!ast) {
-    throw new Error("No source file found");
+  let emitResult = program.emit();
+  let allDiagnostics = ts
+    .getPreEmitDiagnostics(program)
+    .concat(emitResult.diagnostics)
+    .flatMap(diagnostic => {
+      if (diagnostic.file) {
+        return diagnostic.file.fileName === fileName ? diagnostic.messageText : []
+      }
+      return [];
+    });
+  if (allDiagnostics.length > 0) {
+    throw new Error(`Type check failed: ${allDiagnostics.map(d => ts.flattenDiagnosticMessageText(d, "\n")).join("\n")}`);
   }
-  const funcs = ast.statements.flatMap((s) => ts.isFunctionDeclaration(s) && s.name?.text === 'main' ? s : []);
-  if (funcs.length !== 1) {
-    throw new Error("No function declaration found");
-  }
-  const func = funcs[0];
 }
 
 export async function geni<Input extends unknown[], Output>(
@@ -77,28 +75,37 @@ export async function geni<Input extends unknown[], Output>(
     if (await file.exists()) {
       return file.text();
     }
-    const r = await generateFunction(description, inputs, output);
+    const r = `
+${await generateFunction(description, inputs, output)}
+const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;
+  `;
     Bun.write(file, r);
-    // typecheck input and output before returning the result
-    // load typescript file into program
-    // use ast to locate the func declaration
-    // then use ts.typeChecker to validate the types
-    // if valid, return the result
-    // if not, throw error
+    typecheck(`.geni/${hash}.ts`, inputs, output);
     return r;
   })();
 
-  typecheck(`.geni/${hash}.ts`, inputs, output);
-
   return (...args: Input) => {
-    const toEval = `${result} \n main(${args.map((arg) => JSON.stringify(arg)).join(", ")}); `;
+    const toEval = `${result} \n wrapper(${args.map((arg) => JSON.stringify(arg)).join(", ")}); `;
     return eval(ts.transpile(toEval));
   };
 }
 
-const concat = await geni(
-  "Concatenate number and boolean",
-  [Number, Boolean],
+const Person = Struct({
+  name: String,
+  age: Number,
+});
+
+const welcome = await geni(
+  "Write a welcome message to people in the input array mentioning their names and ages",
+  [Array(Person)],
   String,
 );
-console.log(concat(13, true));
+
+console.log(
+  welcome(
+    [
+      { name: 'anton', age: 30 },
+      { name: 'geni', age: 28 },
+    ]
+  ),
+);
