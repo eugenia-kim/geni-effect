@@ -8,6 +8,7 @@ Plan:
 - [x] Multiple Inputs
 - [x] Validate Ouput type
 - [x] Error handling for openai generate function
+- [ ] Basic test for gaurdrail
 - [ ] Generate Effect instead of the function with Success
 - [ ] Generate Effect with Success, Error, and Requirements
 - [ ] Replace bun file with storage abstraction using Effect platform layer
