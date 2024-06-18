@@ -7,7 +7,7 @@ Plan:
 - [x] Simple cache of function on disk
 - [x] Multiple Inputs
 - [x] Validate Ouput type
-- [ ] Error handling for openai generate function
+- [x] Error handling for openai generate function
 - [ ] Generate Effect instead of the function with Success
 - [ ] Generate Effect with Success, Error, and Requirements
 - [ ] Replace bun file with storage abstraction using Effect platform layer
