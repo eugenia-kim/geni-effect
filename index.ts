@@ -1,12 +1,16 @@
-import { Effect, Console } from "effect";
+import { Effect, Console, Either } from "effect";
 import { String, Boolean, type Schema, Number, Array, Struct } from "@effect/schema/Schema";
 import { JSONSchema } from "@effect/schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
+import type { BunFile } from "bun";
 
 const openai = new OpenAI();
+
+const DIR = ".geni";
+const TEMP_DIR = '.geni/temp';
 
 async function request(prompt: string) {
   const completion = await openai.chat.completions.create({
@@ -35,21 +39,22 @@ async function generateFunction<Input, Output>(
   return request(generateFunctionPrompt(description, input, output));
 }
 
-function typecheck<Input extends unknown[], Output>(fileName: string, inputs: InputSchema<Input>, output: Schema<Output>) {
-  const program = ts.createProgram([fileName], {});
+function typecheck<Input extends unknown[], Output>(file: BunFile, inputs: InputSchema<Input>, output: Schema<Output>) {
+  const program = ts.createProgram([file.name || ''], {});
   let emitResult = program.emit();
   let allDiagnostics = ts
     .getPreEmitDiagnostics(program)
     .concat(emitResult.diagnostics)
     .flatMap(diagnostic => {
       if (diagnostic.file) {
-        return diagnostic.file.fileName === fileName ? diagnostic.messageText : []
+        return diagnostic.file.fileName === file.name ? diagnostic.messageText : []
       }
       return [];
     });
   if (allDiagnostics.length > 0) {
-    throw new Error(`Type check failed: ${allDiagnostics.map(d => ts.flattenDiagnosticMessageText(d, "\n")).join("\n")}`);
+    return Either.left(`Type check failed: ${allDiagnostics.map(d => ts.flattenDiagnosticMessageText(d, "\n")).join("\n")}`);
   }
+  return Either.right('success');
 }
 
 export async function geni<Input extends unknown[], Output>(
@@ -58,33 +63,35 @@ export async function geni<Input extends unknown[], Output>(
   output: Schema<Output>,
 ): Promise<(...input: Input) => Output> {
   const hash = sha1(`${description}:${inputs}:${output}`);
-  const fileName = `.geni/${hash}.ts`;
-  const file = Bun.file(fileName);
+  let attempt = 0;
+  const tempDir = `${TEMP_DIR}/${hash}`;
   const wrapperCode = `const wrapper: (${inputs.map((input, i) => `arg${i}: ${input}`).join(", ")}) => ${output} = main;`;
+  const finalFile = Bun.file(`${DIR}/${hash}.ts`);
 
-  const generateAndWrite = async (previousAttempts: Array<{ response: string, error: string }>) => {
-    const r = `${await generateFunction(description, inputs, output, previousAttempts)}\n${wrapperCode}`;
-    Bun.write(file, r);
-    typecheck(fileName, inputs, output);
-    return r;
-  };
   const result = await (async () => {
-    if (await file.exists()) {
-      return await file.text();
+    if (await finalFile.exists()) {
+      return await finalFile.text();
     }
     let retries = 3;
     let previousAttempts: Array<{ response: string, error: string }> = [];
     let r = '';
-    while (retries > 0) {
-      try {
-        r = await generateAndWrite(previousAttempts);
-        break;
-      } catch (e: unknown) {
-        previousAttempts.push({ response: r, error: (e as Error).message });
+    while (attempt < retries) {
+      const result = await (async () => {
+        const r = `${await generateFunction(description, inputs, output, previousAttempts)}\n${wrapperCode}`;
+        const tempFile = Bun.file(`${tempDir}/${attempt}.ts`);
+        Bun.write(tempFile, r);
+        return { response: r, status: typecheck(tempFile, inputs, output) };
+      })();
+      r = result.response;
+      if (Either.isLeft(result.status)) {
+        previousAttempts.push({ response: r, error: result.status.left });
+        attempt++;
+      } else {
+        Bun.write(finalFile, r);
+        return r;
       }
-      retries--;
     }
-    return r;
+    throw new Error('Failed to generate function');
   })();
 
   return (...args: Input) => {
