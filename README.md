@@ -11,7 +11,7 @@ Plan:
 - [ ] Basic test for gaurdrail
 - [ ] Generate Effect instead of the function with Success
 - [ ] Generate Effect with Success, Error, and Requirements
-- [ ] Replace bun file with storage abstraction using Effect platform layer
+- [x] Replace bun file with storage abstraction using Effect platform layer
 - [ ] Fuzzy testing
 - [ ] Similar function can be identified. Function lookup should check the db first.
 

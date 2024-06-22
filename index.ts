@@ -1,4 +1,6 @@
 import { Effect, Console, Either, Context, pipe } from "effect";
+import { FileSystem } from "@effect/platform/FileSystem"
+import { BunFileSystem } from "@effect/platform-bun"
 import {
   String,
   Boolean,
@@ -20,7 +22,7 @@ const TEMP_DIR = ".geni/temp";
 class LLM extends Context.Tag("LLM")<
   LLM,
   { readonly request: (prompt: string) => Effect.Effect<string, Error> }
->() {}
+>() { }
 
 const provideChatGPT = Effect.provideService(LLM, {
   request: (prompt: string) =>
@@ -63,30 +65,30 @@ const generateFunction = <Input, Output>(
     console.log("openAI request");
     const result = previousAttempts.length
       ? yield* llm.request(
-          retryGenerateFunctionPrompt(
-            description,
-            input,
-            output,
-            previousAttempts
-          )
+        retryGenerateFunctionPrompt(
+          description,
+          input,
+          output,
+          previousAttempts
         )
+      )
       : yield* llm.request(generateFunctionPrompt(description, input, output));
     return result;
   });
 
 function typecheck<Input extends unknown[], Output>(
-  file: BunFile,
+  fileName: string,
   inputs: InputSchema<Input>,
   output: Schema<Output>
 ) {
-  const program = ts.createProgram([file.name || ""], {});
+  const program = ts.createProgram([fileName], {});
   let emitResult = program.emit();
   let allDiagnostics = ts
     .getPreEmitDiagnostics(program)
     .concat(emitResult.diagnostics)
     .flatMap((diagnostic) => {
       if (diagnostic.file) {
-        return diagnostic.file.fileName === file.name
+        return diagnostic.file.fileName === fileName
           ? diagnostic.messageText
           : [];
       }
@@ -102,58 +104,48 @@ function typecheck<Input extends unknown[], Output>(
   return Either.right("success");
 }
 
-export async function geni<Input extends unknown[], Output>(
+export const genericGeni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
   output: Schema<Output>
-): Promise<(...input: Input) => Output> {
-  const hash = sha1(`${description}:${inputs}:${output}`);
-  let attempt = 0;
-  const tempDir = `${TEMP_DIR}/${hash}`;
-  const wrapperCode = `const wrapper: (${inputs
-    .map((input, i) => `arg${i}: ${input}`)
-    .join(", ")}) => ${output} = main;`;
-  const finalFile = Bun.file(`${DIR}/${hash}.ts`);
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const hash = sha1(`${description}:${inputs}:${output}`);
+    let attempt = 0;
+    const tempDir = `${TEMP_DIR}/${hash}`;
+    const wrapperCode = `const wrapper: (${inputs
+      .map((input, i) => `arg${i}: ${input}`)
+      .join(", ")}) => ${output} = main;`;
+    const finalFile = `${DIR}/${hash}.ts`;
+    yield* fs.makeDirectory(tempDir, { recursive: true });
 
-  const result = await (async () => {
-    if (await finalFile.exists()) {
-      return await finalFile.text();
-    }
     let retries = 3;
     let previousAttempts: Array<{ response: string; error: string }> = [];
-    let r = "";
     while (attempt < retries) {
-      const result = await (async () => {
-        const func = await Effect.runPromise(
-          pipe(
-            generateFunction(description, inputs, output, previousAttempts),
-            provideMockLLM
-          )
-        );
-        const r = `${func}\n${wrapperCode}`;
-        const tempFile = Bun.file(`${tempDir}/${attempt}.ts`);
-        Bun.write(tempFile, r);
-        return { response: r, status: typecheck(tempFile, inputs, output) };
-      })();
-      r = result.response;
-      if (Either.isLeft(result.status)) {
-        previousAttempts.push({ response: r, error: result.status.left });
+      const func: string = yield* generateFunction(description, inputs, output, previousAttempts);
+      const r = `${func}\n${wrapperCode}`;
+      const tempFileName = `${tempDir}/${attempt}.ts`;
+      yield* fs.writeFileString(tempFileName, r);
+      const status = typecheck(tempFileName, inputs, output);
+      if (Either.isLeft(status)) {
+        previousAttempts.push({ response: r, error: status.left });
         attempt++;
       } else {
-        Bun.write(finalFile, r);
-        return r;
+        yield* fs.writeFileString(finalFile, r);
+        return (...args: Input) => {
+          const toEval = `${r} \n wrapper(${args
+            .map((arg) => JSON.stringify(arg))
+            .join(", ")}); `;
+          return eval(ts.transpile(toEval));
+        };
       }
     }
     throw new Error("Failed to generate function");
-  })();
+  });
 
-  return (...args: Input) => {
-    const toEval = `${result} \n wrapper(${args
-      .map((arg) => JSON.stringify(arg))
-      .join(", ")}); `;
-    return eval(ts.transpile(toEval));
-  };
-}
+const geni = <Input extends unknown[], Output>(description: string, inputs: InputSchema<Input>, output: Schema<Output>) =>
+  Effect.runPromise(pipe(genericGeni(description, inputs, output), provideChatGPT, Effect.provide(BunFileSystem.layer)));
 
 const Person = Struct({
   name: String,
@@ -161,9 +153,9 @@ const Person = Struct({
 });
 
 const welcome = await geni(
-  "Write a welcome message to people in the input array mentioning their names and ages",
+  "Return the oldest person",
   [Array(Person)],
-  String
+  Person
 );
 
 console.log(

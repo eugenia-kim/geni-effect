@@ -25,3 +25,21 @@ const concat = await geni(
 );
 console.log(concat(13, "Hello"));
 
+const Person = Struct({
+    name: String,
+    age: Number,
+});
+
+const welcome = await geni(
+    "Write a welcome message to people in the input array mentioning their names and ages",
+    [Array(Person)],
+    String
+);
+
+console.log(
+    welcome([
+        { name: "anton", age: 30 },
+        { name: "geni", age: 28 },
+    ])
+);
+

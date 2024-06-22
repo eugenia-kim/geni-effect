@@ -9,6 +9,8 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@effect/platform": "^0.58.2",
+    "@effect/platform-bun": "^0.38.1",
     "@effect/schema": "^0.67.23",
     "effect": "^3.3.2",
     "js-sha1": "^0.7.0",
