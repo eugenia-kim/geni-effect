@@ -2,17 +2,19 @@ import { BunFileSystem } from "@effect/platform-bun";
 import type { PlatformError } from "@effect/platform/Error";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { Effect, pipe } from "effect";
+import { Schema } from "@effect/schema";
 
-interface Task {
-  train: Array<{
-    input: Array<Array<number>>;
-    output: Array<Array<number>>;
-  }>;
-  test: Array<{
-    input: Array<Array<number>>;
-    output: Array<Array<number>>;
-  }>;
-}
+const ArcData = Schema.Array(
+  Schema.Struct({
+    input: Schema.Array(Schema.Array(Schema.Number)),
+    output: Schema.Array(Schema.Array(Schema.Number)),
+  })
+);
+
+const Task = Schema.Struct({
+  train: ArcData,
+  test: ArcData,
+});
 
 export const loadTask = ({
   taskId,
@@ -20,13 +22,13 @@ export const loadTask = ({
 }: {
   taskId: string;
   dataset: "training" | "evaluation";
-}): Effect.Effect<Task, PlatformError, FileSystem> => {
+}): Effect.Effect<typeof Task.Type, PlatformError, FileSystem> => {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const data = yield* fs.readFileString(
       `ARC-AGI/data/${dataset}/${taskId}.json`
     );
-    return JSON.parse(data);
+    return Schema.decodeSync(Task)(JSON.parse(data));
   });
 };
 
