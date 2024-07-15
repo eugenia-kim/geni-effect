@@ -1,6 +1,6 @@
 import { Effect, Console, Either, Context, pipe } from "effect";
-import { FileSystem } from "@effect/platform/FileSystem"
-import { BunFileSystem } from "@effect/platform-bun"
+import { FileSystem } from "@effect/platform/FileSystem";
+import { BunFileSystem } from "@effect/platform-bun";
 import {
   String,
   Boolean,
@@ -22,9 +22,9 @@ const TEMP_DIR = ".geni/temp";
 class LLM extends Context.Tag("LLM")<
   LLM,
   { readonly request: (prompt: string) => Effect.Effect<string, Error> }
->() { }
+>() {}
 
-const provideChatGPT = Effect.provideService(LLM, {
+export const provideChatGPT = Effect.provideService(LLM, {
   request: (prompt: string) =>
     Effect.gen(function* () {
       const openai = new OpenAI();
@@ -65,13 +65,13 @@ const generateFunction = <Input, Output>(
     console.log("openAI request");
     const result = previousAttempts.length
       ? yield* llm.request(
-        retryGenerateFunctionPrompt(
-          description,
-          input,
-          output,
-          previousAttempts
+          retryGenerateFunctionPrompt(
+            description,
+            input,
+            output,
+            previousAttempts
+          )
         )
-      )
       : yield* llm.request(generateFunctionPrompt(description, input, output));
     return result;
   });
@@ -123,7 +123,12 @@ export const genericGeni = <Input extends unknown[], Output>(
     let retries = 3;
     let previousAttempts: Array<{ response: string; error: string }> = [];
     while (attempt < retries) {
-      const func: string = yield* generateFunction(description, inputs, output, previousAttempts);
+      const func: string = yield* generateFunction(
+        description,
+        inputs,
+        output,
+        previousAttempts
+      );
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt}.ts`;
       yield* fs.writeFileString(tempFileName, r);
@@ -144,19 +149,25 @@ export const genericGeni = <Input extends unknown[], Output>(
     throw new Error("Failed to generate function");
   });
 
-const geni = <Input extends unknown[], Output>(description: string, inputs: InputSchema<Input>, output: Schema<Output>) =>
-  Effect.runPromise(pipe(genericGeni(description, inputs, output), provideChatGPT, Effect.provide(BunFileSystem.layer)));
+const geni = <Input extends unknown[], Output>(
+  description: string,
+  inputs: InputSchema<Input>,
+  output: Schema<Output>
+) =>
+  Effect.runPromise(
+    pipe(
+      genericGeni(description, inputs, output),
+      provideChatGPT,
+      Effect.provide(BunFileSystem.layer)
+    )
+  );
 
 const Person = Struct({
   name: String,
   age: Number,
 });
 
-const welcome = await geni(
-  "Return the oldest person",
-  [Array(Person)],
-  Person
-);
+const welcome = await geni("Return the oldest person", [Array(Person)], Person);
 
 console.log(
   welcome([
