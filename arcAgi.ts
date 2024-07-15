@@ -21,7 +21,7 @@ const arcGeni = (
     const task = yield* loadTask({ taskId, dataset });
     const description = `${userInstruction}
     The input is a grid of numbers, and the output is another grid of numbers. Here are the input/output pair examples:
-    ${task.train}`;
+    ${JSON.stringify(task.train)}`;
     console.log("Calling with description: ", description);
     const fun = yield* genericGeni(description, [Grid], Grid);
     for (const test of task.test) {
@@ -41,5 +41,5 @@ const arcGeni = (
 arcGeni(
   "continue the pattern with red dots to bottom right corner",
   "0b17323b",
-  "training"
+  "evaluation"
 );
