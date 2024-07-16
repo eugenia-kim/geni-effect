@@ -8,7 +8,7 @@ const ArcData = Schema.Array(
   Schema.Struct({
     input: Schema.Array(Schema.Array(Schema.Number)),
     output: Schema.Array(Schema.Array(Schema.Number)),
-  })
+  }),
 );
 
 const Task = Schema.Struct({
@@ -26,17 +26,17 @@ export const loadTask = ({
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const data = yield* fs.readFileString(
-      `ARC-AGI/data/${dataset}/${taskId}.json`
+      `ARC-AGI/data/${dataset}/${taskId}.json`,
     );
     return Schema.decodeSync(Task)(JSON.parse(data));
   });
 };
 
-console.log(
-  await Effect.runPromise(
-    pipe(
-      loadTask({ taskId: "0a938d79", dataset: "training" }),
-      Effect.provide(BunFileSystem.layer)
-    )
-  )
-);
+// console.log(
+//   await Effect.runPromise(
+//     pipe(
+//       loadTask({ taskId: "0a938d79", dataset: "training" }),
+//       Effect.provide(BunFileSystem.layer)
+//     )
+//   )
+// );

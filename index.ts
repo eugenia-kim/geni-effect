@@ -16,6 +16,7 @@ import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import type { BunFile } from "bun";
 
+const TYPE_RETRIES = 5;
 const DIR = ".geni";
 const TEMP_DIR = ".geni/temp";
 
@@ -33,7 +34,7 @@ export const provideChatGPT = Effect.provideService(LLM, {
         openai.chat.completions.create({
           messages: [{ role: "system", content: prompt }],
           model: "gpt-4o",
-        })
+        }),
       );
 
       return completion.choices[0].message.content || "";
@@ -58,7 +59,7 @@ const generateFunction = <Input, Output>(
   previousAttempts: Array<{
     response: string;
     error: string;
-  }> = []
+  }> = [],
 ) =>
   Effect.gen(function* () {
     const llm = yield* LLM;
@@ -69,8 +70,8 @@ const generateFunction = <Input, Output>(
             description,
             input,
             output,
-            previousAttempts
-          )
+            previousAttempts,
+          ),
         )
       : yield* llm.request(generateFunctionPrompt(description, input, output));
     return result;
@@ -79,7 +80,7 @@ const generateFunction = <Input, Output>(
 function typecheck<Input extends unknown[], Output>(
   fileName: string,
   inputs: InputSchema<Input>,
-  output: Schema<Output>
+  output: Schema<Output>,
 ) {
   const program = ts.createProgram([fileName], {});
   let emitResult = program.emit();
@@ -98,7 +99,7 @@ function typecheck<Input extends unknown[], Output>(
     return Either.left(
       `Type check failed: ${allDiagnostics
         .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
-        .join("\n")}`
+        .join("\n")}`,
     );
   }
   return Either.right("success");
@@ -107,7 +108,7 @@ function typecheck<Input extends unknown[], Output>(
 export const genericGeni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
-  output: Schema<Output>
+  output: Schema<Output>,
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem;
@@ -120,14 +121,14 @@ export const genericGeni = <Input extends unknown[], Output>(
     const finalFile = `${DIR}/${hash}.ts`;
     yield* fs.makeDirectory(tempDir, { recursive: true });
 
-    let retries = 3;
+    let retries = TYPE_RETRIES;
     let previousAttempts: Array<{ response: string; error: string }> = [];
     while (attempt < retries) {
       const func: string = yield* generateFunction(
         description,
         inputs,
         output,
-        previousAttempts
+        previousAttempts,
       );
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt}.ts`;
@@ -152,14 +153,14 @@ export const genericGeni = <Input extends unknown[], Output>(
 const geni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
-  output: Schema<Output>
+  output: Schema<Output>,
 ) =>
   Effect.runPromise(
     pipe(
       genericGeni(description, inputs, output),
       provideChatGPT,
-      Effect.provide(BunFileSystem.layer)
-    )
+      Effect.provide(BunFileSystem.layer),
+    ),
   );
 
 const Person = Struct({
@@ -173,5 +174,5 @@ console.log(
   welcome([
     { name: "anton", age: 30 },
     { name: "geni", age: 28 },
-  ])
+  ]),
 );

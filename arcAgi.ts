@@ -15,12 +15,12 @@ const Grid = Schema.Array(Schema.Array(Schema.Number));
 const arcGeni = (
   userInstruction: string,
   taskId: string,
-  dataset: "training" | "evaluation"
+  dataset: "training" | "evaluation",
 ) => {
   const program = Effect.gen(function* () {
     const task = yield* loadTask({ taskId, dataset });
     const description = `${userInstruction}
-    The input is a grid of numbers, and the output is another grid of numbers. Here are the input/output pair examples:
+    The input is a grid of numbers, and the output is another grid of numbers represented in 2D arrays. Here are the list of {input, output} pair examples:
     ${JSON.stringify(task.train)}`;
     console.log("Calling with description: ", description);
     const fun = yield* genericGeni(description, [Grid], Grid);
@@ -34,12 +34,14 @@ const arcGeni = (
   });
 
   return Effect.runPromise(
-    pipe(program, provideChatGPT, Effect.provide(BunFileSystem.layer))
+    pipe(program, provideChatGPT, Effect.provide(BunFileSystem.layer)),
   );
 };
 
-arcGeni(
-  "continue the pattern with red dots to bottom right corner",
+const testing = await arcGeni(
+  "Step 1: Identify the pattern of the colored points. Step 2: From the most bottom right blue point, start adding red (2) points from the position where the next blue (1) point would have been, continuing the same pattern. Step 3: Continue adding red points until the next point is out of bounds.",
   "0b17323b",
-  "evaluation"
+  "evaluation",
 );
+
+console.log(testing);
