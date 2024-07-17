@@ -1,20 +1,17 @@
-import { Effect, Console, Either, Context, pipe } from "effect";
+import { Effect, Console, Either, Context, pipe, Data } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { BunFileSystem } from "@effect/platform-bun";
 import {
   String,
-  Boolean,
   type Schema,
   Number,
   Array,
   Struct,
 } from "@effect/schema/Schema";
-import { JSONSchema } from "@effect/schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
-import type { BunFile } from "bun";
 
 const TYPE_RETRIES = 5;
 const DIR = ".geni";
@@ -121,9 +118,9 @@ export const genericGeni = <Input extends unknown[], Output>(
     const finalFile = `${DIR}/${hash}.ts`;
     yield* fs.makeDirectory(tempDir, { recursive: true });
 
-    let retries = TYPE_RETRIES;
     let previousAttempts: Array<{ response: string; error: string }> = [];
-    while (attempt < retries) {
+
+    const generateFunctionProgram = Effect.gen(function* () {
       const func: string = yield* generateFunction(
         description,
         inputs,
@@ -131,23 +128,31 @@ export const genericGeni = <Input extends unknown[], Output>(
         previousAttempts,
       );
       const r = `${func}\n${wrapperCode}`;
-      const tempFileName = `${tempDir}/${attempt}.ts`;
+      const tempFileName = `${tempDir}/${attempt++}.ts`;
       yield* fs.writeFileString(tempFileName, r);
       const status = typecheck(tempFileName, inputs, output);
       if (Either.isLeft(status)) {
         previousAttempts.push({ response: r, error: status.left });
-        attempt++;
-      } else {
-        yield* fs.writeFileString(finalFile, r);
-        return (...args: Input) => {
-          const toEval = `${r} \n wrapper(${args
-            .map((arg) => JSON.stringify(arg))
-            .join(", ")}); `;
-          return eval(ts.transpile(toEval));
-        };
+        yield* Effect.fail(status.left);
       }
+      return r;
+    });
+
+    let result = "";
+    try {
+      result = yield* Effect.retry(generateFunctionProgram, {
+        times: TYPE_RETRIES,
+      });
+    } catch (e) {
+      throw new Error("Failed to generate function");
     }
-    throw new Error("Failed to generate function");
+    yield* fs.writeFileString(finalFile, result);
+    return (...args: Input) => {
+      const toEval = `${result} \n wrapper(${args
+        .map((arg) => JSON.stringify(arg))
+        .join(", ")}); `;
+      return eval(ts.transpile(toEval));
+    };
   });
 
 const geni = <Input extends unknown[], Output>(
