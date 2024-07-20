@@ -151,6 +151,27 @@ function getPreviousAttempts(hash: string) {
   });
 }
 
+function validateCachedFunction<Input extends unknown[], Output>(
+  fileName: string,
+  tests: Array<{
+    input: Input;
+    output: Output;
+  }> = [],
+) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const r = yield* fs.readFileString(fileName);
+    const status = validate(fileName, r, tests);
+    if (Either.isLeft(status)) {
+      return Either.left(
+        "Cached function is outdated. Need to regenerate one. See error: " +
+          status.left,
+      );
+    }
+    return Either.right(r);
+  });
+}
+
 export const genericGeni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
@@ -163,12 +184,21 @@ export const genericGeni = <Input extends unknown[], Output>(
   Effect.gen(function* () {
     const fs = yield* FileSystem;
     const hash = sha1(`${description}:${inputs}:${output}`);
+    const finalFile = `${DIR}/${hash}.ts`;
+    const cachedFunctionOrError = yield* validateCachedFunction(
+      finalFile,
+      tests,
+    );
+    if (Either.isRight(cachedFunctionOrError)) {
+      return cachedFunctionOrError.right;
+    }
+    // delete the final file as we need to re-generate one
+    yield* fs.remove(finalFile);
     let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
     const wrapperCode = `const wrapper: (${inputs
       .map((input, i) => `arg${i}: ${input}`)
       .join(", ")}) => ${output} = main;`;
-    const finalFile = `${DIR}/${hash}.ts`;
     yield* fs.makeDirectory(tempDir, { recursive: true });
 
     let previousAttempts: Array<{ response: string; error: string }> = [];
@@ -240,6 +270,16 @@ const welcome = await geni(
         ] as const,
       ],
       output: { name: "anton", age: 30 },
+    },
+    {
+      input: [
+        [
+          { name: "geni", age: 28 },
+          { name: "dave", age: 39 },
+          { name: "deniz", age: 35 },
+        ] as const,
+      ],
+      output: { name: "dave", age: 39 },
     },
   ],
 );
