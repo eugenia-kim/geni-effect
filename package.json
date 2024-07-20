@@ -6,14 +6,16 @@
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.5.3"
   },
   "dependencies": {
     "@effect/platform": "^0.58.2",
     "@effect/platform-bun": "^0.38.1",
     "@effect/schema": "^0.67.23",
+    "bun": "^1.1.18",
     "effect": "^3.3.2",
     "js-sha1": "^0.7.0",
+    "lodash": "^4.17.21",
     "openai": "^4.51.0"
   }
 }

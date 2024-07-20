@@ -1,4 +1,4 @@
-import { Effect, Console, Either, Context, pipe, Data } from "effect";
+import { Effect, Either, Context, pipe } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { BunFileSystem } from "@effect/platform-bun";
 import {
@@ -12,8 +12,9 @@ import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
+import * as _ from "lodash";
 
-const TYPE_RETRIES = 5;
+const TYPE_RETRIES = 1;
 const DIR = ".geni";
 const TEMP_DIR = ".geni/temp";
 
@@ -74,10 +75,23 @@ const generateFunction = <Input, Output>(
     return result;
   });
 
-function typecheck<Input extends unknown[], Output>(
+function toRunnable<Input extends unknown[]>(generatedCode: string) {
+  return (...args: Input) => {
+    const toEval = `${generatedCode} \n wrapper(${args
+      .map((arg) => JSON.stringify(arg))
+      .join(", ")}); `;
+    return eval(ts.transpile(toEval));
+  };
+}
+
+// type check and tests
+function validate<Input extends unknown[], Output>(
   fileName: string,
-  inputs: InputSchema<Input>,
-  output: Schema<Output>,
+  generatedCode: string,
+  tests: Array<{
+    input: Input;
+    output: Output;
+  }> = [],
 ) {
   const program = ts.createProgram([fileName], {});
   let emitResult = program.emit();
@@ -99,18 +113,57 @@ function typecheck<Input extends unknown[], Output>(
         .join("\n")}`,
     );
   }
+
+  const failed = [];
+  const runnable = toRunnable(generatedCode);
+  for (const test of tests) {
+    const actual = runnable(...test.input);
+    if (!_.isEqual(test.output, actual)) {
+      failed.push({ input: test.input, expected: test.output, actual });
+    }
+  }
+  if (failed.length > 0) {
+    return Either.left(
+      `${failed.length}\/${tests.length} tests failed. Failed test cases: ${JSON.stringify(failed)}`,
+    );
+  }
   return Either.right("success");
+}
+
+function getPreviousAttempts(hash: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const tempDir = `${TEMP_DIR}/${hash}`;
+    const filesOrFailure = yield* Effect.either(fs.readDirectory(tempDir));
+    if (Either.isLeft(filesOrFailure) || filesOrFailure.right.length === 0) {
+      return 0;
+    }
+    const files = filesOrFailure.right;
+    const fileName = files[files.length - 1];
+    const regex = /(\d+)\.ts/; // Match one or more digits (\d+) followed by ".ts"
+    const match = fileName.match(regex);
+
+    if (match) {
+      const extractedNumber = match[1]; // The first capturing group contains the number
+      return +extractedNumber + 1;
+    }
+    return 0;
+  });
 }
 
 export const genericGeni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
   output: Schema<Output>,
+  tests: Array<{
+    input: Input;
+    output: Output;
+  }> = [],
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem;
     const hash = sha1(`${description}:${inputs}:${output}`);
-    let attempt = 0;
+    let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
     const wrapperCode = `const wrapper: (${inputs
       .map((input, i) => `arg${i}: ${input}`)
@@ -130,9 +183,10 @@ export const genericGeni = <Input extends unknown[], Output>(
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt++}.ts`;
       yield* fs.writeFileString(tempFileName, r);
-      const status = typecheck(tempFileName, inputs, output);
+      const status = validate(tempFileName, r, tests);
       if (Either.isLeft(status)) {
         previousAttempts.push({ response: r, error: status.left });
+        console.log(status.left);
         yield* Effect.fail(status.left);
       }
       return r;
@@ -147,24 +201,24 @@ export const genericGeni = <Input extends unknown[], Output>(
       throw new Error("Failed to generate function");
     }
     yield* fs.writeFileString(finalFile, result);
-    return (...args: Input) => {
-      const toEval = `${result} \n wrapper(${args
-        .map((arg) => JSON.stringify(arg))
-        .join(", ")}); `;
-      return eval(ts.transpile(toEval));
-    };
+    return toRunnable(result);
   });
 
 const geni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
   output: Schema<Output>,
+  tests: Array<{
+    input: Input;
+    output: Output;
+  }>,
 ) =>
   Effect.runPromise(
     pipe(
-      genericGeni(description, inputs, output),
+      genericGeni(description, inputs, output, tests),
       provideChatGPT,
       Effect.provide(BunFileSystem.layer),
+      Effect.withSpan("geni"),
     ),
   );
 
@@ -173,7 +227,22 @@ const Person = Struct({
   age: Number,
 });
 
-const welcome = await geni("Return the oldest person", [Array(Person)], Person);
+const welcome = await geni(
+  "Return the oldest person",
+  [Array(Person)],
+  Person,
+  [
+    {
+      input: [
+        [
+          { name: "anton", age: 30 },
+          { name: "geni", age: 28 },
+        ] as const,
+      ],
+      output: { name: "anton", age: 30 },
+    },
+  ],
+);
 
 console.log(
   welcome([
