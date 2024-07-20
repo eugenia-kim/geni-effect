@@ -14,7 +14,7 @@ import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import * as _ from "lodash";
 
-const TYPE_RETRIES = 1;
+const RETRIES = 5;
 const DIR = ".geni";
 const TEMP_DIR = ".geni/temp";
 
@@ -185,15 +185,17 @@ export const genericGeni = <Input extends unknown[], Output>(
     const fs = yield* FileSystem;
     const hash = sha1(`${description}:${inputs}:${output}`);
     const finalFile = `${DIR}/${hash}.ts`;
-    const cachedFunctionOrError = yield* validateCachedFunction(
-      finalFile,
-      tests,
-    );
-    if (Either.isRight(cachedFunctionOrError)) {
-      return toRunnable(cachedFunctionOrError.right);
+    if (yield* fs.exists(finalFile)) {
+      const cachedFunctionOrError = yield* validateCachedFunction(
+        finalFile,
+        tests,
+      );
+      if (Either.isRight(cachedFunctionOrError)) {
+        return toRunnable(cachedFunctionOrError.right);
+      }
+      // delete the final file as we need to re-generate one
+      yield* fs.remove(finalFile);
     }
-    // delete the final file as we need to re-generate one
-    yield* fs.remove(finalFile);
     let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
     const wrapperCode = `const wrapper: (${inputs
@@ -225,7 +227,7 @@ export const genericGeni = <Input extends unknown[], Output>(
     let result = "";
     try {
       result = yield* Effect.retry(generateFunctionProgram, {
-        times: TYPE_RETRIES,
+        times: RETRIES,
       });
     } catch (e) {
       throw new Error("Failed to generate function");

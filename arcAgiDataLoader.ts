@@ -4,10 +4,12 @@ import { FileSystem } from "@effect/platform/FileSystem";
 import { Effect, pipe } from "effect";
 import { Schema } from "@effect/schema";
 
+export const Grid = Schema.Array(Schema.Array(Schema.Number));
+
 const ArcData = Schema.Array(
   Schema.Struct({
-    input: Schema.Array(Schema.Array(Schema.Number)),
-    output: Schema.Array(Schema.Array(Schema.Number)),
+    input: Grid,
+    output: Grid,
   }),
 );
 
