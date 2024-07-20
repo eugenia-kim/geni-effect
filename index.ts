@@ -190,7 +190,7 @@ export const genericGeni = <Input extends unknown[], Output>(
       tests,
     );
     if (Either.isRight(cachedFunctionOrError)) {
-      return cachedFunctionOrError.right;
+      return toRunnable(cachedFunctionOrError.right);
     }
     // delete the final file as we need to re-generate one
     yield* fs.remove(finalFile);
