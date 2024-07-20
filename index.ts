@@ -7,6 +7,7 @@ import {
   Number,
   Array,
   Struct,
+  encodeSync,
 } from "@effect/schema/Schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
@@ -75,12 +76,15 @@ const generateFunction = <Input, Output>(
     return result;
   });
 
-function toRunnable<Input extends unknown[]>(generatedCode: string) {
+function toRunnable<Input extends unknown[], Output>(
+  generatedCode: string,
+  output: Schema<Output>,
+) {
   return (...args: Input) => {
     const toEval = `${generatedCode} \n wrapper(${args
       .map((arg) => JSON.stringify(arg))
       .join(", ")}); `;
-    return eval(ts.transpile(toEval));
+    return encodeSync(output)(eval(ts.transpile(toEval)));
   };
 }
 
@@ -88,6 +92,7 @@ function toRunnable<Input extends unknown[]>(generatedCode: string) {
 function validate<Input extends unknown[], Output>(
   fileName: string,
   generatedCode: string,
+  outputSchema: Schema<Output>,
   tests: Array<{
     input: Input;
     output: Output;
@@ -115,7 +120,7 @@ function validate<Input extends unknown[], Output>(
   }
 
   const failed = [];
-  const runnable = toRunnable(generatedCode);
+  const runnable = toRunnable(generatedCode, outputSchema);
   for (const test of tests) {
     const actual = runnable(...test.input);
     if (!_.isEqual(test.output, actual)) {
@@ -153,6 +158,7 @@ function getPreviousAttempts(hash: string) {
 
 function validateCachedFunction<Input extends unknown[], Output>(
   fileName: string,
+  outputSchema: Schema<Output>,
   tests: Array<{
     input: Input;
     output: Output;
@@ -161,7 +167,7 @@ function validateCachedFunction<Input extends unknown[], Output>(
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const r = yield* fs.readFileString(fileName);
-    const status = validate(fileName, r, tests);
+    const status = validate(fileName, r, outputSchema, tests);
     if (Either.isLeft(status)) {
       return Either.left(
         "Cached function is outdated. Need to regenerate one. See error: " +
@@ -188,10 +194,11 @@ export const genericGeni = <Input extends unknown[], Output>(
     if (yield* fs.exists(finalFile)) {
       const cachedFunctionOrError = yield* validateCachedFunction(
         finalFile,
+        output,
         tests,
       );
       if (Either.isRight(cachedFunctionOrError)) {
-        return toRunnable(cachedFunctionOrError.right);
+        return toRunnable(cachedFunctionOrError.right, output);
       }
       // delete the final file as we need to re-generate one
       yield* fs.remove(finalFile);
@@ -215,7 +222,7 @@ export const genericGeni = <Input extends unknown[], Output>(
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt++}.ts`;
       yield* fs.writeFileString(tempFileName, r);
-      const status = validate(tempFileName, r, tests);
+      const status = validate(tempFileName, r, output, tests);
       if (Either.isLeft(status)) {
         previousAttempts.push({ response: r, error: status.left });
         console.log(status.left);
@@ -233,7 +240,7 @@ export const genericGeni = <Input extends unknown[], Output>(
       throw new Error("Failed to generate function");
     }
     yield* fs.writeFileString(finalFile, result);
-    return toRunnable(result);
+    return toRunnable(result, output);
   });
 
 const geni = <Input extends unknown[], Output>(
@@ -285,10 +292,8 @@ const welcome = await geni(
     },
   ],
 );
-
-console.log(
-  welcome([
-    { name: "anton", age: 30 },
-    { name: "geni", age: 28 },
-  ]),
-);
+const o = welcome([
+  { name: "anton", age: 30 },
+  { name: "geni", age: 28 },
+]);
+console.log(o);
