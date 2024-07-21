@@ -17,15 +17,12 @@ import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
 import { catchAll, mapError } from "effect/Effect";
 import { validateCachedFunction, validate } from "./validate";
+import { LLM, type InputSchema } from "./types";
+import { generate } from "./generate";
 
 const RETRIES = 5;
 const DIR = ".geni";
 const TEMP_DIR = ".geni/temp";
-
-class LLM extends Context.Tag("LLM")<
-  LLM,
-  { readonly request: (prompt: string) => Effect.Effect<string, Error> }
->() {}
 
 export const provideChatGPT = Effect.provideService(LLM, {
   request: (prompt: string) =>
@@ -51,33 +48,6 @@ const provideMockLLM = Effect.provideService(LLM, {
     }`;
     }),
 });
-
-type InputSchema<Input> = { [I in keyof Input]: Schema<Input[I]> };
-
-const generateFunction = <Input, Output>(
-  description: string,
-  input: InputSchema<Input>,
-  output: Schema<Output>,
-  previousAttempts: Array<{
-    response: string;
-    error: string;
-  }> = []
-) =>
-  Effect.gen(function* () {
-    const llm = yield* LLM;
-    console.log("openAI request");
-    const result = previousAttempts.length
-      ? yield* llm.request(
-          retryGenerateFunctionPrompt(
-            description,
-            input,
-            output,
-            previousAttempts
-          )
-        )
-      : yield* llm.request(generateFunctionPrompt(description, input, output));
-    return result;
-  });
 
 function toRunnable<Input extends unknown[], Output>(
   generatedCode: string,
@@ -138,23 +108,15 @@ export const genericGeni = <Input extends unknown[], Output>(
     }
     let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
-    const wrapperCode = `const wrapper: (${inputs
-      .map((input, i) => `arg${i}: ${input}`)
-      .join(", ")}) => ${output} = main;`;
     yield* fs.makeDirectory(tempDir, { recursive: true });
 
     let previousAttempts: Array<{ response: string; error: string }> = [];
 
     const generateFunctionProgram = Effect.gen(function* () {
-      const func: string = yield* generateFunction(
-        description,
-        inputs,
-        output,
-        previousAttempts
-      );
-      const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt++}.ts`;
+      const r = yield* generate(description, inputs, output, previousAttempts);
       yield* fs.writeFileString(tempFileName, r);
+
       return yield* Effect.matchEffect(validate(tempFileName, output, tests), {
         onFailure: (e) => {
           // TODO: propagate the PlatformError
