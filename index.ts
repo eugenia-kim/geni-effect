@@ -15,6 +15,7 @@ import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
+import { catchAll } from "effect/Effect";
 
 const RETRIES = 5;
 const DIR = ".geni";
@@ -142,12 +143,12 @@ function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const tempDir = `${TEMP_DIR}/${hash}`;
-    const filesOrFailure: Either.Either<readonly string[], PlatformError> =
-      yield* Effect.either(fs.readDirectory(tempDir));
-    if (Either.isLeft(filesOrFailure) || filesOrFailure.right.length === 0) {
+    const files = yield* fs
+      .readDirectory(tempDir)
+      .pipe(catchAll((e) => Effect.succeed([] as const)));
+    if (files.length === 0) {
       return 0;
     }
-    const files = filesOrFailure.right;
     const fileName = files[files.length - 1];
     const regex = /(\d+)\.ts/; // Match one or more digits (\d+) followed by ".ts"
     const match = fileName.match(regex);
