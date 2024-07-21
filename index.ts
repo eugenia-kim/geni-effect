@@ -13,7 +13,8 @@ import OpenAI from "openai";
 import { sha1 } from "js-sha1";
 import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
-import * as _ from "lodash";
+import _ from "lodash";
+import type { PlatformError } from "@effect/platform/Error";
 
 const RETRIES = 5;
 const DIR = ".geni";
@@ -33,7 +34,7 @@ export const provideChatGPT = Effect.provideService(LLM, {
         openai.chat.completions.create({
           messages: [{ role: "system", content: prompt }],
           model: "gpt-4o",
-        }),
+        })
       );
 
       return completion.choices[0].message.content || "";
@@ -58,7 +59,7 @@ const generateFunction = <Input, Output>(
   previousAttempts: Array<{
     response: string;
     error: string;
-  }> = [],
+  }> = []
 ) =>
   Effect.gen(function* () {
     const llm = yield* LLM;
@@ -69,8 +70,8 @@ const generateFunction = <Input, Output>(
             description,
             input,
             output,
-            previousAttempts,
-          ),
+            previousAttempts
+          )
         )
       : yield* llm.request(generateFunctionPrompt(description, input, output));
     return result;
@@ -78,7 +79,7 @@ const generateFunction = <Input, Output>(
 
 function toRunnable<Input extends unknown[], Output>(
   generatedCode: string,
-  output: Schema<Output>,
+  output: Schema<Output>
 ) {
   return (...args: Input) => {
     const toEval = `${generatedCode} \n wrapper(${args
@@ -96,7 +97,7 @@ function validate<Input extends unknown[], Output>(
   tests: Array<{
     input: Input;
     output: Output;
-  }> = [],
+  }> = []
 ) {
   const program = ts.createProgram([fileName], {});
   let emitResult = program.emit();
@@ -115,7 +116,7 @@ function validate<Input extends unknown[], Output>(
     return Either.left(
       `Type check failed: ${allDiagnostics
         .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
-        .join("\n")}`,
+        .join("\n")}`
     );
   }
 
@@ -129,7 +130,9 @@ function validate<Input extends unknown[], Output>(
   }
   if (failed.length > 0) {
     return Either.left(
-      `${failed.length}\/${tests.length} tests failed. Failed test cases: ${JSON.stringify(failed)}`,
+      `${failed.length}\/${
+        tests.length
+      } tests failed. Failed test cases: ${JSON.stringify(failed)}`
     );
   }
   return Either.right("success");
@@ -139,7 +142,8 @@ function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const tempDir = `${TEMP_DIR}/${hash}`;
-    const filesOrFailure = yield* Effect.either(fs.readDirectory(tempDir));
+    const filesOrFailure: Either.Either<readonly string[], PlatformError> =
+      yield* Effect.either(fs.readDirectory(tempDir));
     if (Either.isLeft(filesOrFailure) || filesOrFailure.right.length === 0) {
       return 0;
     }
@@ -162,7 +166,7 @@ function validateCachedFunction<Input extends unknown[], Output>(
   tests: Array<{
     input: Input;
     output: Output;
-  }> = [],
+  }> = []
 ) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
@@ -171,7 +175,7 @@ function validateCachedFunction<Input extends unknown[], Output>(
     if (Either.isLeft(status)) {
       return Either.left(
         "Cached function is outdated. Need to regenerate one. See error: " +
-          status.left,
+          status.left
       );
     }
     return Either.right(r);
@@ -185,18 +189,15 @@ export const genericGeni = <Input extends unknown[], Output>(
   tests: Array<{
     input: Input;
     output: Output;
-  }> = [],
+  }> = []
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem;
     const hash = sha1(`${description}:${inputs}:${output}`);
     const finalFile = `${DIR}/${hash}.ts`;
     if (yield* fs.exists(finalFile)) {
-      const cachedFunctionOrError = yield* validateCachedFunction(
-        finalFile,
-        output,
-        tests,
-      );
+      const cachedFunctionOrError: Either.Either<string, string> =
+        yield* validateCachedFunction(finalFile, output, tests);
       if (Either.isRight(cachedFunctionOrError)) {
         return toRunnable(cachedFunctionOrError.right, output);
       }
@@ -217,7 +218,7 @@ export const genericGeni = <Input extends unknown[], Output>(
         description,
         inputs,
         output,
-        previousAttempts,
+        previousAttempts
       );
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt++}.ts`;
@@ -248,17 +249,17 @@ const geni = <Input extends unknown[], Output>(
   inputs: InputSchema<Input>,
   output: Schema<Output>,
   tests: Array<{
-    input: Input;
-    output: Output;
-  }>,
+    input: NoInfer<Input>;
+    output: NoInfer<Output>;
+  }>
 ) =>
   Effect.runPromise(
     pipe(
       genericGeni(description, inputs, output, tests),
       provideChatGPT,
       Effect.provide(BunFileSystem.layer),
-      Effect.withSpan("geni"),
-    ),
+      Effect.withSpan("geni")
+    )
   );
 
 const Person = Struct({
@@ -290,7 +291,7 @@ const welcome = await geni(
       ],
       output: { name: "dave", age: 39 },
     },
-  ],
+  ]
 );
 const o = welcome([
   { name: "anton", age: 30 },
