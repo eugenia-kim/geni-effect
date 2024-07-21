@@ -4,7 +4,7 @@ import { type Schema } from "@effect/schema/Schema";
 import * as ts from "typescript";
 import { mapError } from "effect/Effect";
 import _ from "lodash";
-import { toRunnable } from "./generate";
+import { toTimeLimitedRunnable } from "./generate";
 import type { PlatformError } from "@effect/platform/Error";
 
 // type check and tests
@@ -40,12 +40,17 @@ export const validate = <Input extends unknown[], Output>(
       );
     }
 
+    const jsFileName = fileName.replace(".ts", ".js");
+    ts.transpile(generatedCode, undefined, jsFileName);
+    const runnable = toTimeLimitedRunnable(jsFileName, outputSchema, 3000);
+
     const failed = [];
-    const runnable = toRunnable(generatedCode, outputSchema);
     for (const test of tests) {
       console.log("Running test", fileName);
       try {
-        const actual = runnable(...test.input);
+        const actual: Output = yield* Effect.promise(() =>
+          runnable(...test.input)
+        );
         if (!_.isEqual(test.output, actual)) {
           failed.push({ input: test.input, expected: test.output, actual });
         }
