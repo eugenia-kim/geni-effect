@@ -1,10 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { type Schema } from "@effect/schema/Schema";
 import * as ts from "typescript";
 import { mapError } from "effect/Effect";
 import _ from "lodash";
 import { toRunnable } from "./generate";
+import type { PlatformError } from "@effect/platform/Error";
 
 // type check and tests
 export const validate = <Input extends unknown[], Output>(
@@ -32,7 +33,7 @@ export const validate = <Input extends unknown[], Output>(
         return [];
       });
     if (allDiagnostics.length > 0) {
-      yield* Effect.fail(
+      return Option.some(
         `Type check failed: ${allDiagnostics
           .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
           .join("\n")}`
@@ -42,19 +43,20 @@ export const validate = <Input extends unknown[], Output>(
     const failed = [];
     const runnable = toRunnable(generatedCode, outputSchema);
     for (const test of tests) {
+      console.log("Running test", fileName, test);
       const actual = runnable(...test.input);
       if (!_.isEqual(test.output, actual)) {
         failed.push({ input: test.input, expected: test.output, actual });
       }
     }
     if (failed.length > 0) {
-      yield* Effect.fail(
+      return Option.some(
         `${failed.length}\/${
           tests.length
         } tests failed. Failed test cases: ${JSON.stringify(failed)}`
       );
     }
-    return generatedCode;
+    return Option.none();
   });
 
 export const validateCachedFunction = <Input extends unknown[], Output>(
@@ -76,3 +78,36 @@ export const validateCachedFunction = <Input extends unknown[], Output>(
       }
     })
   );
+
+export interface PreviousAttempt {
+  response: string;
+  verdict: Option.Option<string>;
+}
+
+export const validatePreviousAttempts = <Input extends unknown[], Output>(
+  directoryName: string,
+  outputSchema: Schema<Output>,
+  tests: Array<{
+    input: Input;
+    output: Output;
+  }> = []
+): Effect.Effect<PreviousAttempt[], PlatformError, FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const files = yield* fs.readDirectory(directoryName);
+    // TODO: Maybe it can be done faster to find the passing one.
+    return yield* Effect.all(
+      files
+        .filter((f) => f.includes(".ts"))
+        .map((file) =>
+          Effect.gen(function* () {
+            const fileName = `${directoryName}/${file}`;
+            const response = yield* fs.readFileString(fileName);
+            const verdict = yield* validate(fileName, outputSchema, tests);
+            yield* Effect.log("Validated ", fileName, verdict);
+            return { response, verdict };
+          })
+        ),
+      { concurrency: "unbounded" }
+    );
+  });

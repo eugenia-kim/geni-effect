@@ -1,4 +1,4 @@
-import { Effect, Either, Context, pipe } from "effect";
+import { Effect, Either, Context, pipe, Option } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { BunFileSystem } from "@effect/platform-bun";
 import { type Schema, encodeSync } from "@effect/schema/Schema";
@@ -7,7 +7,12 @@ import { sha1 } from "js-sha1";
 import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
 import { catchAll } from "effect/Effect";
-import { validateCachedFunction, validate } from "./validate";
+import {
+  validateCachedFunction,
+  validate,
+  validatePreviousAttempts,
+  type PreviousAttempt,
+} from "./validate";
 import { LLM, type InputSchema } from "./types";
 import { generate, toRunnable } from "./generate";
 
@@ -66,37 +71,42 @@ export const genericGeni = <Input extends unknown[], Output>(
     const fs = yield* FileSystem;
     const hash = sha1(`${description}:${inputs}:${output}`);
     const finalFile = `${DIR}/${hash}.ts`;
-    if (yield* fs.exists(finalFile)) {
-      const result: Either.Either<string, string | PlatformError> =
-        yield* Effect.either(validateCachedFunction(finalFile, output, tests));
-      if (Either.isRight(result)) {
-        return toRunnable(result.right, output);
-      } else {
-        // delete the final file as we need to re-generate one
-        fs.remove(finalFile);
-      }
-    }
-    let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
     yield* fs.makeDirectory(tempDir, { recursive: true });
 
-    let previousAttempts: Array<{ response: string; error: string }> = [];
+    const previousAttempts: PreviousAttempt[] = yield* validatePreviousAttempts(
+      tempDir,
+      output,
+      tests
+    );
+    const passingAttempt = previousAttempts.find((attempt) =>
+      Option.isNone(attempt.verdict)
+    );
+    if (passingAttempt) {
+      yield* fs.writeFileString(finalFile, passingAttempt.response);
+      return toRunnable(passingAttempt.response, output);
+    }
 
     const generateFunctionProgram = Effect.gen(function* () {
-      const tempFileName = `${tempDir}/${attempt++}.ts`;
-      const r = yield* generate(description, inputs, output, previousAttempts);
-      yield* fs.writeFileString(tempFileName, r);
+      const tempFileName = `${tempDir}/${previousAttempts.length}.ts`;
+      const response = yield* generate(
+        description,
+        inputs,
+        output,
+        previousAttempts.map((attempt) => ({
+          response: attempt.response,
+          error: Option.getOrElse(attempt.verdict, () => ""),
+        }))
+      );
+      yield* fs.writeFileString(tempFileName, response);
 
-      return yield* Effect.matchEffect(validate(tempFileName, output, tests), {
-        onFailure: (e) => {
-          // TODO: propagate the PlatformError
-          const error = typeof e === "string" ? e : e.message;
-          previousAttempts.push({ response: r, error });
-          console.log(error);
-          return Effect.fail(error);
-        },
-        onSuccess: () => Effect.succeed(r),
-      });
+      const verdict = yield* validate(tempFileName, output, tests);
+      previousAttempts.push({ response, verdict });
+      if (Option.isSome(verdict)) {
+        console.log(verdict.value);
+        yield* Effect.fail(verdict.value);
+      }
+      return response;
     });
 
     let result = "";
