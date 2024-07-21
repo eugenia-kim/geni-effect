@@ -43,10 +43,14 @@ export const validate = <Input extends unknown[], Output>(
     const failed = [];
     const runnable = toRunnable(generatedCode, outputSchema);
     for (const test of tests) {
-      console.log("Running test", fileName, test);
-      const actual = runnable(...test.input);
-      if (!_.isEqual(test.output, actual)) {
-        failed.push({ input: test.input, expected: test.output, actual });
+      console.log("Running test", fileName);
+      try {
+        const actual = runnable(...test.input);
+        if (!_.isEqual(test.output, actual)) {
+          failed.push({ input: test.input, expected: test.output, actual });
+        }
+      } catch (e) {
+        failed.push({ input: test.input, expected: test.output, actual: e });
       }
     }
     if (failed.length > 0) {
