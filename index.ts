@@ -16,6 +16,7 @@ import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
 import { catchAll, mapError } from "effect/Effect";
+import { validateCachedFunction, validate } from "./validate";
 
 const RETRIES = 5;
 const DIR = ".geni";
@@ -90,57 +91,6 @@ function toRunnable<Input extends unknown[], Output>(
   };
 }
 
-// type check and tests
-const validate = <Input extends unknown[], Output>(
-  fileName: string,
-  outputSchema: Schema<Output>,
-  tests: Array<{
-    input: Input;
-    output: Output;
-  }> = []
-) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem;
-    const generatedCode = yield* fs.readFileString(fileName);
-    const program = ts.createProgram([fileName], {});
-    let emitResult = program.emit();
-    let allDiagnostics = ts
-      .getPreEmitDiagnostics(program)
-      .concat(emitResult.diagnostics)
-      .flatMap((diagnostic) => {
-        if (diagnostic.file) {
-          return diagnostic.file.fileName === fileName
-            ? diagnostic.messageText
-            : [];
-        }
-        return [];
-      });
-    if (allDiagnostics.length > 0) {
-      yield* Effect.fail(
-        `Type check failed: ${allDiagnostics
-          .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
-          .join("\n")}`
-      );
-    }
-
-    const failed = [];
-    const runnable = toRunnable(generatedCode, outputSchema);
-    for (const test of tests) {
-      const actual = runnable(...test.input);
-      if (!_.isEqual(test.output, actual)) {
-        failed.push({ input: test.input, expected: test.output, actual });
-      }
-    }
-    if (failed.length > 0) {
-      yield* Effect.fail(
-        `${failed.length}\/${
-          tests.length
-        } tests failed. Failed test cases: ${JSON.stringify(failed)}`
-      );
-    }
-    return generatedCode;
-  });
-
 function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
@@ -162,26 +112,6 @@ function getPreviousAttempts(hash: string) {
     return 0;
   });
 }
-
-const validateCachedFunction = <Input extends unknown[], Output>(
-  fileName: string,
-  outputSchema: Schema<Output>,
-  tests: Array<{
-    input: Input;
-    output: Output;
-  }> = []
-) =>
-  validate(fileName, outputSchema, tests).pipe(
-    mapError((e) => {
-      if (typeof e === "string") {
-        return (
-          "Cached function is outdated. Need to regenerate one. See error: " + e
-        );
-      } else {
-        return e;
-      }
-    })
-  );
 
 export const genericGeni = <Input extends unknown[], Output>(
   description: string,
