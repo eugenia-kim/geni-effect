@@ -15,7 +15,7 @@ import * as ts from "typescript";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
-import { catchAll } from "effect/Effect";
+import { catchAll, mapError } from "effect/Effect";
 
 const RETRIES = 5;
 const DIR = ".geni";
@@ -82,7 +82,7 @@ function toRunnable<Input extends unknown[], Output>(
   generatedCode: string,
   output: Schema<Output>
 ) {
-  return (...args: Input) => {
+  return (...args: Input): Output => {
     const toEval = `${generatedCode} \n wrapper(${args
       .map((arg) => JSON.stringify(arg))
       .join(", ")}); `;
@@ -91,53 +91,55 @@ function toRunnable<Input extends unknown[], Output>(
 }
 
 // type check and tests
-function validate<Input extends unknown[], Output>(
+const validate = <Input extends unknown[], Output>(
   fileName: string,
-  generatedCode: string,
   outputSchema: Schema<Output>,
   tests: Array<{
     input: Input;
     output: Output;
   }> = []
-) {
-  const program = ts.createProgram([fileName], {});
-  let emitResult = program.emit();
-  let allDiagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .concat(emitResult.diagnostics)
-    .flatMap((diagnostic) => {
-      if (diagnostic.file) {
-        return diagnostic.file.fileName === fileName
-          ? diagnostic.messageText
-          : [];
-      }
-      return [];
-    });
-  if (allDiagnostics.length > 0) {
-    return Either.left(
-      `Type check failed: ${allDiagnostics
-        .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
-        .join("\n")}`
-    );
-  }
-
-  const failed = [];
-  const runnable = toRunnable(generatedCode, outputSchema);
-  for (const test of tests) {
-    const actual = runnable(...test.input);
-    if (!_.isEqual(test.output, actual)) {
-      failed.push({ input: test.input, expected: test.output, actual });
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const generatedCode = yield* fs.readFileString(fileName);
+    const program = ts.createProgram([fileName], {});
+    let emitResult = program.emit();
+    let allDiagnostics = ts
+      .getPreEmitDiagnostics(program)
+      .concat(emitResult.diagnostics)
+      .flatMap((diagnostic) => {
+        if (diagnostic.file) {
+          return diagnostic.file.fileName === fileName
+            ? diagnostic.messageText
+            : [];
+        }
+        return [];
+      });
+    if (allDiagnostics.length > 0) {
+      yield* Effect.fail(
+        `Type check failed: ${allDiagnostics
+          .map((d) => ts.flattenDiagnosticMessageText(d, "\n"))
+          .join("\n")}`
+      );
     }
-  }
-  if (failed.length > 0) {
-    return Either.left(
-      `${failed.length}\/${
-        tests.length
-      } tests failed. Failed test cases: ${JSON.stringify(failed)}`
-    );
-  }
-  return Either.right("success");
-}
+
+    const failed = [];
+    const runnable = toRunnable(generatedCode, outputSchema);
+    for (const test of tests) {
+      const actual = runnable(...test.input);
+      if (!_.isEqual(test.output, actual)) {
+        failed.push({ input: test.input, expected: test.output, actual });
+      }
+    }
+    if (failed.length > 0) {
+      yield* Effect.fail(
+        `${failed.length}\/${
+          tests.length
+        } tests failed. Failed test cases: ${JSON.stringify(failed)}`
+      );
+    }
+    return generatedCode;
+  });
 
 function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
@@ -161,27 +163,25 @@ function getPreviousAttempts(hash: string) {
   });
 }
 
-function validateCachedFunction<Input extends unknown[], Output>(
+const validateCachedFunction = <Input extends unknown[], Output>(
   fileName: string,
   outputSchema: Schema<Output>,
   tests: Array<{
     input: Input;
     output: Output;
   }> = []
-) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem;
-    const r = yield* fs.readFileString(fileName);
-    const status = validate(fileName, r, outputSchema, tests);
-    if (Either.isLeft(status)) {
-      return Either.left(
-        "Cached function is outdated. Need to regenerate one. See error: " +
-          status.left
-      );
-    }
-    return Either.right(r);
-  });
-}
+) =>
+  validate(fileName, outputSchema, tests).pipe(
+    mapError((e) => {
+      if (typeof e === "string") {
+        return (
+          "Cached function is outdated. Need to regenerate one. See error: " + e
+        );
+      } else {
+        return e;
+      }
+    })
+  );
 
 export const genericGeni = <Input extends unknown[], Output>(
   description: string,
@@ -197,13 +197,14 @@ export const genericGeni = <Input extends unknown[], Output>(
     const hash = sha1(`${description}:${inputs}:${output}`);
     const finalFile = `${DIR}/${hash}.ts`;
     if (yield* fs.exists(finalFile)) {
-      const cachedFunctionOrError: Either.Either<string, string> =
-        yield* validateCachedFunction(finalFile, output, tests);
-      if (Either.isRight(cachedFunctionOrError)) {
-        return toRunnable(cachedFunctionOrError.right, output);
+      const result: Either.Either<string, string | PlatformError> =
+        yield* Effect.either(validateCachedFunction(finalFile, output, tests));
+      if (Either.isRight(result)) {
+        return toRunnable(result.right, output);
+      } else {
+        // delete the final file as we need to re-generate one
+        fs.remove(finalFile);
       }
-      // delete the final file as we need to re-generate one
-      yield* fs.remove(finalFile);
     }
     let attempt = yield* getPreviousAttempts(hash);
     const tempDir = `${TEMP_DIR}/${hash}`;
@@ -224,13 +225,16 @@ export const genericGeni = <Input extends unknown[], Output>(
       const r = `${func}\n${wrapperCode}`;
       const tempFileName = `${tempDir}/${attempt++}.ts`;
       yield* fs.writeFileString(tempFileName, r);
-      const status = validate(tempFileName, r, output, tests);
-      if (Either.isLeft(status)) {
-        previousAttempts.push({ response: r, error: status.left });
-        console.log(status.left);
-        yield* Effect.fail(status.left);
-      }
-      return r;
+      return yield* Effect.matchEffect(validate(tempFileName, output, tests), {
+        onFailure: (e) => {
+          // TODO: propagate the PlatformError
+          const error = typeof e === "string" ? e : e.message;
+          previousAttempts.push({ response: r, error });
+          console.log(error);
+          return Effect.fail(error);
+        },
+        onSuccess: () => Effect.succeed(r),
+      });
     });
 
     let result = "";
