@@ -6,6 +6,17 @@ import {
   Number,
 } from "@effect/schema/Schema";
 import { geni } from "./index";
+import { Effect } from "effect";
+import { LLM } from "./types";
+
+const provideMockLLM = Effect.provideService(LLM, {
+  request: (prompt: string) =>
+    Effect.gen(function* () {
+      return `function main(people: ReadonlyArray<{ readonly name: string; readonly age: number }>): string {
+        return people.map(person => \`Welcome \${person.name}, age \${person.age}!\`).join(' ');
+    }`;
+    }),
+});
 
 const TwoArrays = Struct({
   fst: Array(Number),
@@ -51,3 +62,35 @@ console.log(
     { name: "geni", age: 28 },
   ])
 );
+
+const theOldest = await geni(
+  "Return the oldest person",
+  [Array(Person)],
+  Person,
+  [
+    {
+      input: [
+        [
+          { name: "anton", age: 30 },
+          { name: "geni", age: 28 },
+        ] as const,
+      ],
+      output: { name: "anton", age: 30 },
+    },
+    {
+      input: [
+        [
+          { name: "geni", age: 28 },
+          { name: "dave", age: 39 },
+          { name: "deniz", age: 35 },
+        ] as const,
+      ],
+      output: { name: "dave", age: 39 },
+    },
+  ]
+);
+const o = theOldest([
+  { name: "anton", age: 30 },
+  { name: "geni", age: 28 },
+]);
+console.log(o);

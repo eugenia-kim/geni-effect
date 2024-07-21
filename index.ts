@@ -1,24 +1,15 @@
 import { Effect, Either, Context, pipe } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
 import { BunFileSystem } from "@effect/platform-bun";
-import {
-  String,
-  type Schema,
-  Number,
-  Array,
-  Struct,
-  encodeSync,
-} from "@effect/schema/Schema";
+import { type Schema, encodeSync } from "@effect/schema/Schema";
 import OpenAI from "openai";
 import { sha1 } from "js-sha1";
-import * as ts from "typescript";
-import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import _ from "lodash";
 import type { PlatformError } from "@effect/platform/Error";
-import { catchAll, mapError } from "effect/Effect";
+import { catchAll } from "effect/Effect";
 import { validateCachedFunction, validate } from "./validate";
 import { LLM, type InputSchema } from "./types";
-import { generate } from "./generate";
+import { generate, toRunnable } from "./generate";
 
 const RETRIES = 5;
 const DIR = ".geni";
@@ -39,27 +30,6 @@ export const provideChatGPT = Effect.provideService(LLM, {
       return completion.choices[0].message.content || "";
     }),
 });
-
-const provideMockLLM = Effect.provideService(LLM, {
-  request: (prompt: string) =>
-    Effect.gen(function* () {
-      return `function main(people: ReadonlyArray<{ readonly name: string; readonly age: number }>): string {
-        return people.map(person => \`Welcome \${person.name}, age \${person.age}!\`).join(' ');
-    }`;
-    }),
-});
-
-function toRunnable<Input extends unknown[], Output>(
-  generatedCode: string,
-  output: Schema<Output>
-) {
-  return (...args: Input): Output => {
-    const toEval = `${generatedCode} \n wrapper(${args
-      .map((arg) => JSON.stringify(arg))
-      .join(", ")}); `;
-    return encodeSync(output)(eval(ts.transpile(toEval)));
-  };
-}
 
 function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
@@ -158,40 +128,3 @@ export const geni = <Input extends unknown[], Output>(
       Effect.withSpan("geni")
     )
   );
-
-const Person = Struct({
-  name: String,
-  age: Number,
-});
-
-const welcome = await geni(
-  "Return the oldest person",
-  [Array(Person)],
-  Person,
-  [
-    {
-      input: [
-        [
-          { name: "anton", age: 30 },
-          { name: "geni", age: 28 },
-        ] as const,
-      ],
-      output: { name: "anton", age: 30 },
-    },
-    {
-      input: [
-        [
-          { name: "geni", age: 28 },
-          { name: "dave", age: 39 },
-          { name: "deniz", age: 35 },
-        ] as const,
-      ],
-      output: { name: "dave", age: 39 },
-    },
-  ]
-);
-const o = welcome([
-  { name: "anton", age: 30 },
-  { name: "geni", age: 28 },
-]);
-console.log(o);

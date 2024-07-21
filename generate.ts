@@ -1,8 +1,9 @@
 import { Effect } from "effect";
-import { FileSystem } from "@effect/platform/FileSystem";
 import { generateFunctionPrompt, retryGenerateFunctionPrompt } from "./prompt";
 import { LLM, type InputSchema } from "./types";
 import type { Schema } from "@effect/schema";
+import { encodeSync } from "@effect/schema/Schema";
+import * as ts from "typescript";
 
 const generateFunction = <Input, Output>(
   description: string,
@@ -50,3 +51,15 @@ export const generate = <Input extends unknown[], Output>(
       .join(", ")}) => ${output} = main;`;
     return `${func}\n${wrapperCode}`;
   });
+
+export function toRunnable<Input extends unknown[], Output>(
+  generatedCode: string,
+  output: Schema.Schema<Output>
+) {
+  return (...args: Input): Output => {
+    const toEval = `${generatedCode} \n wrapper(${args
+      .map((arg) => JSON.stringify(arg))
+      .join(", ")}); `;
+    return encodeSync(output)(eval(ts.transpile(toEval)));
+  };
+}

@@ -1,21 +1,10 @@
 import { Effect } from "effect";
 import { FileSystem } from "@effect/platform/FileSystem";
-import { type Schema, encodeSync } from "@effect/schema/Schema";
+import { type Schema } from "@effect/schema/Schema";
 import * as ts from "typescript";
 import { mapError } from "effect/Effect";
 import _ from "lodash";
-
-function toRunnable<Input extends unknown[], Output>(
-  generatedCode: string,
-  output: Schema<Output>
-) {
-  return (...args: Input): Output => {
-    const toEval = `${generatedCode} \n wrapper(${args
-      .map((arg) => JSON.stringify(arg))
-      .join(", ")}); `;
-    return encodeSync(output)(eval(ts.transpile(toEval)));
-  };
-}
+import { toRunnable } from "./generate";
 
 // type check and tests
 export const validate = <Input extends unknown[], Output>(
