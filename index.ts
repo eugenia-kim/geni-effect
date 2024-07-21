@@ -143,7 +143,7 @@ function getPreviousAttempts(hash: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const tempDir = `${TEMP_DIR}/${hash}`;
-    const files = yield* fs
+    const files: readonly string[] = yield* fs
       .readDirectory(tempDir)
       .pipe(catchAll((e) => Effect.succeed([] as const)));
     if (files.length === 0) {
@@ -245,7 +245,7 @@ export const genericGeni = <Input extends unknown[], Output>(
     return toRunnable(result, output);
   });
 
-const geni = <Input extends unknown[], Output>(
+export const geni = <Input extends unknown[], Output>(
   description: string,
   inputs: InputSchema<Input>,
   output: Schema<Output>,
