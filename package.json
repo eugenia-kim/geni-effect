@@ -9,6 +9,7 @@
     "@effect/platform": "^0.58.2",
     "@effect/platform-bun": "^0.38.1",
     "@effect/schema": "^0.67.23",
+    "@supabase/supabase-js": "^2.45.0",
     "@types/lodash": "^4.17.7",
     "bun": "^1.1.18",
     "effect": "^3.3.2",

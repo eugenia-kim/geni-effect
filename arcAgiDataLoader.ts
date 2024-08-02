@@ -6,17 +6,20 @@ import { Schema } from "@effect/schema";
 
 export const Grid = Schema.Array(Schema.Array(Schema.Number));
 
-const ArcData = Schema.Array(
-  Schema.Struct({
-    input: Grid,
-    output: Grid,
-  }),
-);
+const Example = Schema.Struct({
+  input: Grid,
+  output: Grid,
+});
+
+const ArcData = Schema.Array(Example);
 
 const Task = Schema.Struct({
   train: ArcData,
   test: ArcData,
 });
+
+export type Example = typeof Example.Type;
+export type Task = typeof Task.Type;
 
 export const loadTask = ({
   taskId,
@@ -24,11 +27,11 @@ export const loadTask = ({
 }: {
   taskId: string;
   dataset: "training" | "evaluation";
-}): Effect.Effect<typeof Task.Type, PlatformError, FileSystem> => {
+}): Effect.Effect<Task, PlatformError, FileSystem> => {
   return Effect.gen(function* () {
     const fs = yield* FileSystem;
     const data = yield* fs.readFileString(
-      `ARC-AGI/data/${dataset}/${taskId}.json`,
+      `ARC-AGI/data/${dataset}/${taskId}.json`
     );
     return Schema.decodeSync(Task)(JSON.parse(data));
   });
