@@ -3,7 +3,7 @@
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.1.6"
   },
   "dependencies": {
     "@effect/platform": "^0.58.2",
@@ -15,6 +15,7 @@
     "effect": "^3.3.2",
     "js-sha1": "^0.7.0",
     "lodash": "^4.17.21",
-    "openai": "^4.51.0"
+    "openai": "^4.51.0",
+    "typescript": "^5.5.4"
   }
 }

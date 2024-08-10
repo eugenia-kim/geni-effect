@@ -7,6 +7,14 @@ const supabaseUrl = "https://cawmpecwdifxnziewawf.supabase.co";
 const supabaseKey = process.env.SUPABASE_KEY ?? "";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+export const getTask = async (taskId: string, dataset: "training" | "evaluation") => {
+  const read = await supabase.from("examples").select("*").eq("task_id", `${dataset}/${taskId}`);
+  return {
+    train: read.data?.filter((d) => !d.is_test).map(({ input, output }) => ({ input, output })),
+    test: read.data?.filter((d) => d.is_test).map(({ input, output }) => ({ input, output })),
+  };
+};
+
 export const populateTask = (
   taskId: string,
   dataset: "training" | "evaluation"
@@ -38,4 +46,5 @@ export const populateTask = (
   );
 
 await populateTask("0a938d79", "training");
+console.log(await getTask("0a938d79", "training"));
 // await populateTask("0a938d79", "evaluation");

@@ -1,6 +1,7 @@
 import { Effect, pipe } from "effect";
 import { genericGeni, provideChatGPT } from ".";
-import { loadTask, Grid } from "./arcAgiDataLoader";
+import { Grid } from "./arcAgiDataLoader";
+import { getTask } from "./db";
 import { BunFileSystem } from "@effect/platform-bun";
 import _ from "lodash";
 
@@ -11,7 +12,10 @@ const arcGeni = (
   dataset: "training" | "evaluation"
 ) => {
   const program = Effect.gen(function* () {
-    const task = yield* loadTask({ taskId, dataset });
+    const task = yield* Effect.promise(() => getTask(taskId, dataset));
+    if (!task.train || !task.test) {
+      throw new Error("No task found");
+    }
     const description = `${userInstruction}
     The input is a grid of numbers, and the output is another grid of numbers represented in 2D arrays. Here are the list of {input, output} pair examples:
     ${JSON.stringify(task.train)}`;
